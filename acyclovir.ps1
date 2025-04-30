@@ -2,7 +2,7 @@
 # Usage: Run as Administrator
 
 param(
-    [string]$DiscordWebhook = "YOUR_DISCORD_WEBHOOKhttps://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY",
+    [string]$DiscordWebhook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY",
     [ValidateSet("Quick","Full","Offline")][string]$ScanType = "Full"
 )
 
