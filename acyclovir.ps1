@@ -70,3 +70,91 @@ function Run-DefenderScan {
         if ((Get-Date) - $scanStart -ge [TimeSpan]::FromSeconds($ScanTimeout)) {
             throw "Scan timed out after $ScanTimeout seconds"
         }
+        
+        return Get-MpThreat -ErrorAction SilentlyContinue | Where-Object { $_.IsActive }
+    }
+    catch { throw "Defender scan failed: $_" }
+}
+#endregion
+
+#region Enhanced MSERT Functions
+function Invoke-MSERTScan {
+    try {
+        $msertPath = "$tempDir\msert.exe"
+        $msertUrl = "https://definitionupdates.microsoft.com/download/DefinitionUpdates/safety-scanner/msert.exe"
+
+        Add-Log "Downloading Microsoft Safety Scanner..."
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $msertUrl -OutFile $msertPath -UseBasicParsing -ErrorAction Stop
+
+        Add-Log "Running MSERT scan..."
+        $process = Start-Process $msertPath -ArgumentList "/q /norestart" -PassThru -Wait
+        
+        if ($process.ExitCode -ne 0) {
+            throw "MSERT exited with code $($process.ExitCode). Check %windir%\debug\msert.log"
+        }
+        
+        return Get-Content "$env:windir\debug\msert.log" -Tail 500 | Select-String -Pattern "detected|removed|error" -CaseSensitive
+    }
+    catch { throw "MSERT operation failed: $_" }
+    finally { Remove-Item $msertPath -ErrorAction SilentlyContinue }
+}
+#endregion
+
+#region Enhanced System Checks
+function Check-ScheduledTasks {
+    try {
+        Add-Log "Checking suspicious scheduled tasks..."
+        $badTasks = Get-ScheduledTask | Where-Object {
+            $_.TaskName -match "(?i)(Update|Malware|Temp|Script|Loader|Persistence)" -and 
+            $_.State -eq "Ready" -and
+            $_.Actions.Execute -match "\.(exe|dll|ps1|js|vbs|bat|cmd)$" -and
+            $_.Author -notmatch "Microsoft|Windows"
+        }
+        
+        $badTasks | Disable-ScheduledTask -ErrorAction Stop | Out-Null
+        return $badTasks
+    }
+    catch { throw "Task check failed: $_" }
+}
+
+function Check-WMIMalware {
+    try {
+        Add-Log "Checking WMI for malware..."
+        $suspiciousWMI = Get-WmiObject -Namespace root\subscription -Class __EventFilter -Filter '
+            Name LIKE "%malware%" OR 
+            Query LIKE "%malicious%" OR
+            Query LIKE "%powershell%" OR
+            Query LIKE "%encodedcommand%"
+        ' -ErrorAction Stop
+        
+        $suspiciousWMI | Remove-WmiObject
+        return $suspiciousWMI
+    }
+    catch { throw "WMI check failed: $_" }
+}
+#endregion
+
+#region Enhanced Reporting
+function Add-Log {
+    param([string]$Message)
+    "$(Get-Date -Format u) - $Message" | Out-File $logFile -Append
+}
+
+function Send-DiscordReport {
+    param([string]$Message, [string]$File)
+    try {
+        $retryCount = 0
+        $maxRetries = 3
+        
+        while ($retryCount -lt $maxRetries) {
+            try {
+                $boundary = [System.Guid]::NewGuid().ToString()
+                $LF = "`r`n"
+                
+                $body = (
+                    "--$boundary",
+                    "Content-Disposition: form-data; name=`"content`"$LF",
+                    $Message,
+                    "--$boundary",
+                    "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $File -Leaf)`"",
