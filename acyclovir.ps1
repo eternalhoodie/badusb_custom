@@ -1,4 +1,4 @@
-# Malware Removal Automation Script
+# Enhanced Malware Removal Automation Script
 # Usage: Run as Administrator
 
 param(
@@ -10,10 +10,11 @@ param(
 $ErrorActionPreference = "Stop"
 $tempDir = $env:TEMP
 $logFile = "$tempDir\MalwareScan-$(Get-Date -f yyyyMMddHHmm).log"
+$global:lastStatusUpdate = [DateTime]::MinValue
 
 # Check admin privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell "-File `"$PSCommandPath`"" -Verb RunAs
+    Start-Process powershell "-File `"$PSCommandPath`" -DiscordWebhook '$DiscordWebhook' -ScanType $ScanType" -Verb RunAs
     exit
 }
 
@@ -29,11 +30,12 @@ function Test-TamperProtection {
 }
 #endregion
 
-#region Defender Functions
+#region Enhanced Defender Functions
 function Update-Defender {
     try {
-        Write-Output "Updating Defender signatures..." | Tee-Object $logFile -Append
-        Update-MpSignature -UpdateSource MicrosoftUpdateServer
+        Add-Log "Updating Defender signatures..."
+        Update-MpSignature -UpdateSource MicrosoftUpdateServer -ErrorAction Stop
+        Add-Log "Defender signatures updated successfully"
     }
     catch { throw "Defender update failed: $_" }
 }
@@ -41,48 +43,58 @@ function Update-Defender {
 function Run-DefenderScan {
     param([string]$Type)
     try {
-        Write-Output "Starting Defender $Type scan..." | Tee-Object $logFile -Append
-        $scan = Start-MpScan -ScanType $Type -AsJob
+        Add-Log "Starting Defender $Type scan..."
+        $scan = Start-MpScan -ScanType $Type -AsJob -ErrorAction Stop
+        
         while ($scan.State -eq 'Running') {
-            Write-Progress -Activity "Defender Scan" -Status "$Type scan in progress"
+            if ((Get-Date) - $lastStatusUpdate -gt [TimeSpan]::FromMinutes(5)) {
+                $global:lastStatusUpdate = Get-Date
+                Add-Log "Scan progress: $($scan.Progress)% complete"
+            }
             Start-Sleep -Seconds 30
         }
-        return Get-MpThreat
+        
+        return Get-MpThreat -ErrorAction SilentlyContinue
     }
     catch { throw "Defender scan failed: $_" }
 }
 #endregion
 
-#region MSERT Functions
+#region Enhanced MSERT Functions
 function Invoke-MSERTScan {
     try {
         $msertPath = "$tempDir\msert.exe"
         $msertUrl = "https://definitionupdates.microsoft.com/download/DefinitionUpdates/safety-scanner/msert.exe"
 
-        Write-Output "Downloading Microsoft Safety Scanner..." | Tee-Object $logFile -Append
+        Add-Log "Downloading Microsoft Safety Scanner..."
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $msertUrl -OutFile $msertPath -UseBasicParsing
+        Invoke-WebRequest -Uri $msertUrl -OutFile $msertPath -UseBasicParsing -ErrorAction Stop
 
-        Write-Output "Running MSERT scan..." | Tee-Object $logFile -Append
-        Start-Process $msertPath -ArgumentList "/q /norestart" -Wait
+        Add-Log "Running MSERT scan..."
+        $process = Start-Process $msertPath -ArgumentList "/q /norestart" -PassThru -Wait
         
-        $msertLog = Get-Content "$env:windir\debug\msert.log" -Tail 100 -ErrorAction SilentlyContinue
-        return $msertLog
+        if ($process.ExitCode -ne 0) {
+            throw "MSERT exited with code $($process.ExitCode)"
+        }
+        
+        return Get-Content "$env:windir\debug\msert.log" -Tail 200 -ErrorAction SilentlyContinue
     }
     catch { throw "MSERT operation failed: $_" }
     finally { Remove-Item $msertPath -ErrorAction SilentlyContinue }
 }
 #endregion
 
-#region System Checks
+#region Enhanced System Checks
 function Check-ScheduledTasks {
     try {
-        Write-Output "Checking suspicious scheduled tasks..." | Tee-Object $logFile -Append
+        Add-Log "Checking suspicious scheduled tasks..."
         $badTasks = Get-ScheduledTask | Where-Object {
-            $_.TaskName -match "Update|Malware|Temp|Script" -and 
-            $_.State -eq "Ready"
+            $_.TaskName -match "(Update|Malware|Temp|Script|Loader)" -and 
+            $_.State -eq "Ready" -and
+            $_.Actions.Execute -match "\.(exe|dll|ps1|js)$"
         }
-        $badTasks | Disable-ScheduledTask
+        
+        $badTasks | Disable-ScheduledTask -ErrorAction Stop
         return $badTasks
     }
     catch { throw "Task check failed: $_" }
@@ -90,8 +102,8 @@ function Check-ScheduledTasks {
 
 function Check-WMIMalware {
     try {
-        Write-Output "Checking WMI for malware..." | Tee-Object $logFile -Append
-        $suspiciousWMI = Get-WmiObject -Namespace root\subscription -Class __EventFilter -Filter "Name LIKE '%malware%'" -ErrorAction Stop
+        Add-Log "Checking WMI for malware..."
+        $suspiciousWMI = Get-WmiObject -Namespace root\subscription -Class __EventFilter -Filter 'Name LIKE "%malware%" OR Query LIKE "%malicious%"' -ErrorAction Stop
         $suspiciousWMI | Remove-WmiObject
         return $suspiciousWMI
     }
@@ -99,15 +111,30 @@ function Check-WMIMalware {
 }
 #endregion
 
-#region Reporting
+#region Enhanced Reporting
+function Add-Log {
+    param([string]$Message)
+    "$(Get-Date -Format u) - $Message" | Out-File $logFile -Append
+}
+
 function Send-DiscordReport {
     param([string]$Message, [string]$File)
     try {
-        $payload = @{
-            content = $Message
-            file    = Get-Item $File
-        }
-        curl.exe -F "file1=@$File" $DiscordWebhook
+        $boundary = [System.Guid]::NewGuid().ToString()
+        $LF = "`r`n"
+        
+        $body = (
+            "--$boundary",
+            "Content-Disposition: form-data; name=`"content`"$LF",
+            $Message,
+            "--$boundary",
+            "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $File -Leaf)`"",
+            "Content-Type: application/octet-stream$LF",
+            [System.IO.File]::ReadAllText($File),
+            "--$boundary--"
+        ) -join $LF
+
+        Invoke-RestMethod -Uri $DiscordWebhook -Method Post -ContentType "multipart/form-data; boundary=$boundary" -Body $body
     }
     catch { Write-Error "Discord report failed: $_" }
 }
@@ -121,7 +148,7 @@ try {
     # Defender operations
     Update-Defender
     $threats = Run-DefenderScan -Type $ScanType
-    if ($threats) { $threats | Remove-MpThreat -Force }
+    if ($threats) { $threats | Remove-MpThreat -Force -ErrorAction Stop }
     
     # Additional scans
     $msertResults = Invoke-MSERTScan
@@ -147,5 +174,7 @@ catch {
     exit 1
 }
 finally {
-    Remove-Item $logFile -ErrorAction SilentlyContinue
+    if (Test-Path $logFile) {
+        Remove-Item $logFile -Force -ErrorAction SilentlyContinue
+    }
 }
