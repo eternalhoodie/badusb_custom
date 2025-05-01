@@ -2,6 +2,7 @@
 # Usage: Run as Administrator
 Set-ProcessMitigation -PolicyFilePath .\config.xml -Enable DisableExtensionPoints
 $expectedHash = (Get-FileHash .\acyclovir.ps1 -Algorithm SHA256).Hash
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
 $configPath = "$env:TEMP\ProcessMitigation.config"
 @"
